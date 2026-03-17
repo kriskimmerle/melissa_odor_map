@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Melissa TX - Odor Impact & Property Map</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; }
+  #map { width: 100vw; height: 100vh; }
+
+  /* Controls panel */
+  .controls {
+    position: absolute; top: 12px; left: 12px; z-index: 10;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .control-group {
+    background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
+    border-radius: 12px; padding: 14px 16px; color: #e2e8f0;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4); min-width: 210px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .control-group h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: #94a3b8; margin-bottom: 10px; font-weight: 600;
+  }
+  .toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 0; cursor: pointer; user-select: none;
+    font-size: 13px; transition: color 0.15s;
+  }
+  .toggle-row:hover { color: #fff; }
+  .toggle-row input[type="checkbox"] { display: none; }
+  .toggle-switch {
+    width: 36px; height: 20px; background: #475569; border-radius: 10px;
+    position: relative; transition: background 0.2s; flex-shrink: 0;
+  }
+  .toggle-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; background: #fff; border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle-row input:checked + .toggle-switch {
+    background: #3b82f6;
+  }
+  .toggle-row input:checked + .toggle-switch::after {
+    transform: translateX(16px);
+  }
+
+  /* Season buttons */
+  .season-btns { display: flex; gap: 4px; margin-top: 4px; }
+  .season-btn {
+    flex: 1; padding: 8px 6px; border: 1px solid #475569; background: transparent;
+    color: #94a3b8; border-radius: 8px; font-size: 12px; cursor: pointer;
+    transition: all 0.2s; font-weight: 500;
+  }
+  .season-btn.active {
+    background: #3b82f6; border-color: #3b82f6; color: #fff;
+  }
+  .season-btn:hover:not(.active) { border-color: #64748b; color: #e2e8f0; }
+
+  /* Legend */
+  .legend-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 0; font-size: 12px;
+  }
+  .legend-dot {
+    width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.15);
+  }
+  .legend-line {
+    width: 14px; height: 3px; flex-shrink: 0; border-radius: 2px;
+  }
+
+  /* Info panel */
+  .info-panel {
+    position: absolute; bottom: 32px; left: 12px; z-index: 10;
+    background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
+    border-radius: 12px; padding: 16px 18px; color: #cbd5e1;
+    max-width: 380px; font-size: 12px; line-height: 1.6;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .info-panel h3 { color: #f1f5f9; font-size: 13px; margin-bottom: 8px; }
+  .info-panel .close-btn {
+    position: absolute; top: 8px; right: 12px; background: none; border: none;
+    color: #64748b; font-size: 18px; cursor: pointer; line-height: 1;
+  }
+  .info-panel .close-btn:hover { color: #e2e8f0; }
+
+  /* Popup styling */
+  .maplibregl-popup-content {
+    background: rgba(15, 23, 42, 0.96) !important; color: #e2e8f0 !important;
+    border-radius: 14px !important; padding: 0 !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    max-width: 340px !important; min-width: 280px !important;
+    backdrop-filter: blur(12px) !important;
+  }
+  .maplibregl-popup-tip { border-top-color: rgba(15, 23, 42, 0.96) !important; }
+  .maplibregl-popup-close-button {
+    color: #94a3b8 !important; font-size: 20px !important;
+    right: 8px !important; top: 6px !important;
+  }
+  .maplibregl-popup-close-button:hover { color: #fff !important; }
+
+  .popup-card { padding: 16px 18px; }
+  .popup-card.eliminated { border-left: 4px solid #ef4444; }
+  .popup-card.active { border-left: 4px solid #22c55e; }
+  .popup-card.review { border-left: 4px solid #f59e0b; }
+  .popup-addr {
+    font-size: 15px; font-weight: 700; color: #f1f5f9;
+    margin-bottom: 2px; padding-right: 20px;
+  }
+  .popup-subdiv { font-size: 11px; color: #64748b; margin-bottom: 10px; }
+  .popup-row {
+    display: flex; gap: 8px; font-size: 13px; padding: 2px 0;
+    flex-wrap: wrap;
+  }
+  .popup-label { color: #64748b; }
+  .popup-val { color: #e2e8f0; font-weight: 500; }
+  .popup-divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 8px 0; }
+  .popup-notes {
+    font-size: 12px; color: #94a3b8; line-height: 1.5;
+    margin-top: 6px;
+  }
+  .popup-status {
+    display: inline-block; padding: 3px 10px; border-radius: 6px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-top: 8px;
+  }
+  .status-active { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .status-eliminated { background: rgba(239,68,68,0.15); color: #f87171; }
+  .status-review { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .popup-distances { margin-top: 8px; }
+  .popup-distances .dist-row {
+    display: flex; justify-content: space-between; font-size: 11px;
+    padding: 2px 0; color: #94a3b8;
+  }
+  .dist-val { font-weight: 600; }
+  .dist-close { color: #f87171; }
+  .dist-mod { color: #fbbf24; }
+  .dist-far { color: #4ade80; }
+
+  /* Style override */
+  .maplibregl-ctrl-attrib { font-size: 10px !important; }
+  .maplibregl-ctrl-group { background: rgba(15,23,42,0.85) !important; border-radius: 10px !important; }
+  .maplibregl-ctrl-group button { background-color: transparent !important; }
+  .maplibregl-ctrl-group button span { background-color: #94a3b8 !important; }
+
+  /* Title bar */
+  .title-bar {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px);
+    border-radius: 12px; padding: 10px 24px; color: #f1f5f9;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4); text-align: center;
+    border: 1px solid rgba(255,255,255,0.08); white-space: nowrap;
+  }
+  .title-bar h1 { font-size: 16px; font-weight: 700; letter-spacing: 0.3px; }
+  .title-bar .subtitle { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+  @media (max-width: 768px) {
+    .controls { top: auto; bottom: 12px; left: 8px; right: 8px; flex-direction: row; flex-wrap: wrap; }
+    .control-group { min-width: auto; flex: 1; padding: 10px 12px; }
+    .title-bar { top: 8px; padding: 8px 16px; }
+    .title-bar h1 { font-size: 14px; }
+    .info-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="title-bar">
+  <h1>Melissa, TX &mdash; Odor Impact & Property Map</h1>
+  <div class="subtitle">Interactive 3D Visualization &bull; Tilt &amp; rotate with right-click drag</div>
+</div>
+
+<div class="controls">
+  <div class="control-group">
+    <h3>Map Layers</h3>
+    <label class="toggle-row">
+      <input type="checkbox" id="toggleOdor" checked>
+      <span class="toggle-switch"></span>
+      Odor Zones
+    </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="toggleWind" checked>
+      <span class="toggle-switch"></span>
+      Wind Plumes
+    </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="toggleProps" checked>
+      <span class="toggle-switch"></span>
+      Properties
+    </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="toggleSat">
+      <span class="toggle-switch"></span>
+      Satellite View
+    </label>
+  </div>
+
+  <div class="control-group">
+    <h3>Wind Season</h3>
+    <div class="season-btns">
+      <button class="season-btn active" data-season="spring">Spring / Summer</button>
+      <button class="season-btn" data-season="fall">Fall / Winter</button>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <h3>Legend</h3>
+    <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Landfill (1.5 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div> Compost (1 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div> Organic Recycler (0.75 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#92400e"></div> Feedlot (1 mi)</div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0;">
+    <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> Low risk (&gt;2 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#eab308"></div> Moderate (1-2 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div> High (&lt;1 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> Very High (&lt;0.5 mi)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#64748b;opacity:0.6"></div> Eliminated</div>
+  </div>
+</div>
+
+<div class="info-panel" id="infoPanel">
+  <button class="close-btn" onclick="this.parentElement.style.display='none'">&times;</button>
+  <h3>About Odor Sources in Melissa</h3>
+  Melissa, TX has three documented odor-producing facilities plus a cattle feedlot. Residents have filed
+  complaints with TCEQ and the City since at least 2016. The City Manager has publicly acknowledged the
+  city has no jurisdiction over these facilities.<br><br>
+  Wind patterns shift seasonally &mdash; south/SSW winds in spring &amp; summer push landfill odors north
+  into residential areas, while north/NW winter fronts push the Organic Recycler's odors south into
+  Auburndale and nearby subdivisions.<br><br>
+  <em style="color:#64748b">Odor radii are estimates based on EPA guidance. This is a decision-support tool, not a scientific assessment.</em>
+</div>
+
+<script>
+// ─── DATA ────────────────────────────────────────────────────────
+const odorSources = [
+  {
+    id: 'landfill', name: 'NTMWD Regional Disposal Facility',
+    type: 'Active Municipal Landfill', operator: 'NTMWD',
+    coords: [-96.5170, 33.2955], radiusMi: 1.5,
+    color: [239, 68, 68], // red
+    desc: 'H₂S, VOCs · 310 gas extraction wells · Worst with low pressure & inversions'
+  },
+  {
+    id: 'compost', name: 'Texas Pure Compost',
+    type: 'Municipal Composting', operator: 'City of Plano / NTMWD',
+    coords: [-96.5190, 33.2930], radiusMi: 1.0,
+    color: [249, 115, 22], // orange
+    desc: 'Decomposing organics, ammonia · Co-located with landfill'
+  },
+  {
+    id: 'recycler', name: 'The Organic Recycler',
+    type: 'Commercial Food/Liquid Waste Recycling', operator: 'Private',
+    coords: [-96.6010, 33.2800], radiusMi: 0.75,
+    color: [234, 179, 8], // yellow
+    desc: 'Food waste, beverage waste, landscape waste · Particularly pungent'
+  },
+  {
+    id: 'feedlot', name: 'Melissa Feeders',
+    type: 'Cattle Feedlot', operator: 'Private',
+    coords: [-96.5220, 33.2920], radiusMi: 1.0,
+    color: [146, 64, 14], // brown
+    desc: 'Livestock waste, ammonia'
+  }
+];
+
+const properties = [
+  {
+    id: 1, addr: '2903 Truman Dr', subdiv: 'Liberty Ph 1',
+    coords: [-96.5565, 33.2918], price: '$640,000',
+    beds: 5, baths: '3.5', sqft: '3,109', lot: '20,909 (0.48 ac)',
+    year: '2005 (rebuilt 2023)', status: 'active',
+    notes: 'Half-acre cul-de-sac lot, contractor flip, white oak hardwoods, commercial appliances, 3-car garage. PERMIT HISTORY UNVERIFIED.',
+    statusLabel: 'Active Listing', dom: '9 days on market'
+  },
+  {
+    id: 2, addr: '204 Miramar Ave', subdiv: 'Auburndale',
+    coords: [-96.5971, 33.2807], price: '$475,000',
+    beds: 5, baths: '3.5', sqft: '3,013', lot: '5,489 (0.126 ac)',
+    year: '2020', status: 'eliminated',
+    notes: '3-car garage, $29/mo HOA, first-floor office (12×14). ADJACENT TO THE ORGANIC RECYCLER.',
+    statusLabel: 'ELIMINATED — Odor Risk', reason: 'Adjacent to composting facility'
+  },
+  {
+    id: 3, addr: '3605 Dogwood Rd', subdiv: 'Stonehollow',
+    coords: [-96.5408, 33.3062], price: '$494,000',
+    beds: 4, baths: '4', sqft: '2,591', lot: '7,405',
+    year: '2013', status: 'active',
+    notes: 'PRIVATE FIBERGLASS POOL, cul-de-sac, new roof, Daikin HVAC with UV/purifier & 8yr warranty, 2-car garage.',
+    statusLabel: 'Active Contender'
+  },
+  {
+    id: 4, addr: '2209 Grassland Ave', subdiv: 'Meadow Run',
+    coords: [-96.5390, 33.2780], price: '$508,000',
+    beds: 5, baths: '3.5', sqft: '3,159', lot: '7,797',
+    year: '2021', status: 'active',
+    notes: 'Ashton Woods build, largest sqft in lineup, LVP flooring, covered patio, 2-car (possibly 3-car).',
+    statusLabel: 'Active Contender'
+  },
+  {
+    id: 5, addr: '3519 Laurel Valley Ln', subdiv: '',
+    coords: [-96.5433, 33.2956], price: '~$500,000',
+    beds: 4, baths: '3', sqft: '~2,400', lot: '~8,000',
+    year: '~2023', status: 'review',
+    notes: 'Details unconfirmed. Buyer sourced. Needs verification.',
+    statusLabel: 'Under Review'
+  },
+  {
+    id: 6, addr: '2302 W Wheatgrass Way', subdiv: 'Meadow Run',
+    coords: [-96.5429, 33.2777], price: '$505,000',
+    beds: 4, baths: '3.5', sqft: '2,869-2,912', lot: '~7,000',
+    year: '2025 (new construction)', status: 'review',
+    notes: 'Pacesetter Homes, quartz counters, gas cooktop, LVP, private study, game room, covered patio w/ gas drop.',
+    statusLabel: 'Under Review'
+  },
+  {
+    id: 7, addr: '4308 Spruce Rd', subdiv: 'North Creek',
+    coords: [-96.5436, 33.3062], price: '~$413,000',
+    beds: 4, baths: '2.5', sqft: '2,669', lot: '6,779',
+    year: '~2013', status: 'review',
+    notes: 'North Creek Phase 1, not currently listed. Buyer sourced. Needs verification.',
+    statusLabel: 'Under Review'
+  },
+  {
+    id: 8, addr: '3313 Creekhaven Dr', subdiv: 'Brookside Ph 1',
+    coords: [-96.5471, 33.2935], price: '$509,000',
+    beds: 4, baths: '3', sqft: '2,845', lot: '8,712',
+    year: '2019', status: 'eliminated',
+    notes: 'SOLAR PANELS (third-party lease — DEAL KILLER FOR VA LOAN), 3-car garage, zoned HVAC, wired for data/sound, 177 DOM.',
+    statusLabel: 'ELIMINATED — Solar Lease', reason: 'Solar lease incompatible with VA loan'
+  }
+];
+
+// Wind configs per season
+const windSeasons = {
+  spring: {
+    label: 'Spring / Summer', bearing: 200, // from SSW (200°) → blows toward NNE
+    desc: 'Prevailing S/SSW 10-15 mph — pushes odors NORTH'
+  },
+  fall: {
+    label: 'Fall / Winter', bearing: 340, // from NNW (340°) → blows toward SSE
+    desc: 'N/NW fronts 10-14 mph — pushes odors SOUTH'
+  }
+};
+
+let currentSeason = 'spring';
+let map;
+let popup = null;
+
+// ─── HELPERS ─────────────────────────────────────────────────────
+function milesToKm(mi) { return mi * 1.60934; }
+
+function distanceMiles(c1, c2) {
+  const from = turf.point(c1);
+  const to = turf.point(c2);
+  return turf.distance(from, to, { units: 'miles' });
+}
+
+function getPropertyColor(prop) {
+  if (prop.status === 'eliminated') return '#64748b';
+  let minDist = Infinity;
+  for (const src of odorSources) {
+    const d = distanceMiles(prop.coords, src.coords);
+    minDist = Math.min(minDist, d);
+  }
+  if (minDist < 0.5) return '#ef4444';
+  if (minDist < 1) return '#f97316';
+  if (minDist < 2) return '#eab308';
+  return '#22c55e';
+}
+
+function makeCircleGeoJSON(center, radiusMi, steps = 80) {
+  return turf.circle(center, milesToKm(radiusMi), { steps, units: 'kilometers' });
+}
+
+// Build a wind plume as a cone/sector polygon from a source in the wind direction
+function makePlume(center, radiusMi, windBearing, spreadDeg = 50) {
+  // windBearing = direction wind comes FROM, so plume goes bearing+180
+  const plumeBearing = (windBearing + 180) % 360;
+  const steps = 30;
+  const startAngle = plumeBearing - spreadDeg / 2;
+  const endAngle = plumeBearing + spreadDeg / 2;
+  const coords = [[center[0], center[1]]];
+  for (let i = 0; i <= steps; i++) {
+    const angle = startAngle + (endAngle - startAngle) * (i / steps);
+    const pt = turf.destination(center, milesToKm(radiusMi * 1.3), angle, { units: 'kilometers' });
+    coords.push(pt.geometry.coordinates);
+  }
+  coords.push([center[0], center[1]]);
+  return turf.polygon([coords]);
+}
+
+// Build wind arrows as line features
+function makeWindArrows(center, windBearing, radiusMi) {
+  const plumeBearing = (windBearing + 180) % 360;
+  const arrows = [];
+  for (let offset = -15; offset <= 15; offset += 15) {
+    const angle = plumeBearing + offset;
+    for (let d = 0.3; d <= radiusMi * 1.1; d += 0.35) {
+      const start = turf.destination(center, milesToKm(d), angle, { units: 'kilometers' });
+      const end = turf.destination(center, milesToKm(d + 0.15), angle, { units: 'kilometers' });
+      arrows.push(turf.lineString([start.geometry.coordinates, end.geometry.coordinates]));
+    }
+  }
+  return turf.featureCollection(arrows);
+}
+
+// ─── MAP INIT ────────────────────────────────────────────────────
+const STREET_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+let isSatellite = false;
+let satAdded = false;
+
+map = new maplibregl.Map({
+  container: 'map',
+  style: STREET_STYLE,
+  center: [-96.560, 33.291],
+  zoom: 11.6,
+  pitch: 50,
+  bearing: -15,
+  antialias: true,
+  maxPitch: 70
+});
+
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
+
+map.on('load', () => {
+  // Add satellite sources (hidden by default)
+  map.addSource('sat-tiles', {
+    type: 'raster',
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256,
+    attribution: 'Esri, Maxar, Earthstar Geographics'
+  });
+  map.addSource('sat-labels', {
+    type: 'raster',
+    tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+    tileSize: 256
+  });
+  satAdded = true;
+
+  addOdorZones();
+  addWindPlumes(currentSeason);
+  addPropertyMarkers();
+  addFacilityLabels();
+});
+
+// ─── ODOR ZONES ──────────────────────────────────────────────────
+function addOdorZones() {
+  odorSources.forEach(src => {
+    const circle = makeCircleGeoJSON(src.coords, src.radiusMi);
+    const innerCircle = makeCircleGeoJSON(src.coords, src.radiusMi * 0.3);
+
+    map.addSource(`odor-${src.id}`, { type: 'geojson', data: circle });
+    map.addSource(`odor-inner-${src.id}`, { type: 'geojson', data: innerCircle });
+
+    // Outer zone
+    map.addLayer({
+      id: `odor-fill-${src.id}`,
+      type: 'fill',
+      source: `odor-${src.id}`,
+      paint: {
+        'fill-color': `rgb(${src.color.join(',')})`,
+        'fill-opacity': 0.1
+      }
+    });
+    // Inner zone (higher opacity)
+    map.addLayer({
+      id: `odor-inner-fill-${src.id}`,
+      type: 'fill',
+      source: `odor-inner-${src.id}`,
+      paint: {
+        'fill-color': `rgb(${src.color.join(',')})`,
+        'fill-opacity': 0.25
+      }
+    });
+    // Border
+    map.addLayer({
+      id: `odor-line-${src.id}`,
+      type: 'line',
+      source: `odor-${src.id}`,
+      paint: {
+        'line-color': `rgb(${src.color.join(',')})`,
+        'line-width': 2,
+        'line-opacity': 0.6,
+        'line-dasharray': [4, 3]
+      }
+    });
+  });
+}
+
+// ─── WIND PLUMES ─────────────────────────────────────────────────
+function addWindPlumes(season) {
+  const wind = windSeasons[season];
+
+  // Remove old plume layers/sources
+  odorSources.forEach(src => {
+    ['plume-fill-', 'plume-line-', 'arrows-'].forEach(prefix => {
+      if (map.getLayer(prefix + src.id)) map.removeLayer(prefix + src.id);
+    });
+    ['plume-', 'arrows-'].forEach(prefix => {
+      if (map.getSource(prefix + src.id)) map.removeSource(prefix + src.id);
+    });
+  });
+
+  odorSources.forEach(src => {
+    const plume = makePlume(src.coords, src.radiusMi, wind.bearing);
+    const arrows = makeWindArrows(src.coords, wind.bearing, src.radiusMi);
+
+    map.addSource(`plume-${src.id}`, { type: 'geojson', data: plume });
+    map.addSource(`arrows-${src.id}`, { type: 'geojson', data: arrows });
+
+    map.addLayer({
+      id: `plume-fill-${src.id}`,
+      type: 'fill',
+      source: `plume-${src.id}`,
+      paint: {
+        'fill-color': `rgb(${src.color.join(',')})`,
+        'fill-opacity': 0.12
+      }
+    });
+    map.addLayer({
+      id: `plume-line-${src.id}`,
+      type: 'line',
+      source: `plume-${src.id}`,
+      paint: {
+        'line-color': `rgb(${src.color.join(',')})`,
+        'line-width': 1.5,
+        'line-opacity': 0.3,
+        'line-dasharray': [6, 4]
+      }
+    });
+    map.addLayer({
+      id: `arrows-${src.id}`,
+      type: 'line',
+      source: `arrows-${src.id}`,
+      paint: {
+        'line-color': `rgb(${src.color.join(',')})`,
+        'line-width': 2,
+        'line-opacity': 0.5
+      }
+    });
+  });
+}
+
+// ─── FACILITY LABELS ─────────────────────────────────────────────
+function addFacilityLabels() {
+  const features = odorSources.map(src => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: src.coords },
+    properties: { name: src.name, type: src.type, desc: src.desc }
+  }));
+
+  map.addSource('facility-labels', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features }
+  });
+
+  // Hazard icon circle
+  map.addLayer({
+    id: 'facility-icons',
+    type: 'circle',
+    source: 'facility-labels',
+    paint: {
+      'circle-radius': 10,
+      'circle-color': '#1e1b4b',
+      'circle-stroke-color': '#f87171',
+      'circle-stroke-width': 2.5,
+      'circle-opacity': 0.9
+    }
+  });
+
+  map.addLayer({
+    id: 'facility-text',
+    type: 'symbol',
+    source: 'facility-labels',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-size': 12,
+      'text-offset': [0, 2],
+      'text-anchor': 'top',
+      'text-max-width': 14,
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold']
+    },
+    paint: {
+      'text-color': '#fca5a5',
+      'text-halo-color': 'rgba(0,0,0,0.8)',
+      'text-halo-width': 1.5
+    }
+  });
+
+  // Hover popup for facilities
+  map.on('mouseenter', 'facility-icons', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'facility-icons', () => { map.getCanvas().style.cursor = ''; });
+  map.on('click', 'facility-icons', (e) => {
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ offset: 15, closeButton: true })
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div class="popup-card" style="border-left:4px solid #f87171">
+          <div class="popup-addr">${p.name}</div>
+          <div class="popup-subdiv">${p.type}</div>
+          <div class="popup-notes">${p.desc}</div>
+        </div>
+      `)
+      .addTo(map);
+  });
+}
+
+// ─── PROPERTY MARKERS ────────────────────────────────────────────
+function addPropertyMarkers() {
+  const features = properties.map(prop => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: prop.coords },
+    properties: {
+      ...prop,
+      color: getPropertyColor(prop),
+      coords_str: prop.coords.join(',')
+    }
+  }));
+
+  map.addSource('properties', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features }
+  });
+
+  // Shadow/glow
+  map.addLayer({
+    id: 'prop-glow',
+    type: 'circle',
+    source: 'properties',
+    paint: {
+      'circle-radius': 18,
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.2,
+      'circle-blur': 1
+    }
+  });
+
+  // Main marker
+  map.addLayer({
+    id: 'prop-markers',
+    type: 'circle',
+    source: 'properties',
+    paint: {
+      'circle-radius': [
+        'case',
+        ['==', ['get', 'status'], 'eliminated'], 8,
+        10
+      ],
+      'circle-color': ['get', 'color'],
+      'circle-stroke-color': [
+        'case',
+        ['==', ['get', 'status'], 'eliminated'], '#475569',
+        '#ffffff'
+      ],
+      'circle-stroke-width': [
+        'case',
+        ['==', ['get', 'status'], 'eliminated'], 1.5,
+        2.5
+      ],
+      'circle-opacity': [
+        'case',
+        ['==', ['get', 'status'], 'eliminated'], 0.5,
+        1
+      ]
+    }
+  });
+
+  // X overlay for eliminated
+  map.addLayer({
+    id: 'prop-x-label',
+    type: 'symbol',
+    source: 'properties',
+    filter: ['==', ['get', 'status'], 'eliminated'],
+    layout: {
+      'text-field': '✕',
+      'text-size': 14,
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      'text-allow-overlap': true
+    },
+    paint: {
+      'text-color': '#fff',
+      'text-opacity': 0.8
+    }
+  });
+
+  // Address label
+  map.addLayer({
+    id: 'prop-labels',
+    type: 'symbol',
+    source: 'properties',
+    layout: {
+      'text-field': ['get', 'addr'],
+      'text-size': 11,
+      'text-offset': [0, -2],
+      'text-anchor': 'bottom',
+      'text-max-width': 12,
+      'text-font': ['Open Sans Semibold', 'Arial Unicode MS Regular']
+    },
+    paint: {
+      'text-color': [
+        'case',
+        ['==', ['get', 'status'], 'eliminated'], '#94a3b8',
+        '#f1f5f9'
+      ],
+      'text-halo-color': 'rgba(0,0,0,0.85)',
+      'text-halo-width': 1.5
+    }
+  });
+
+  // Hover / click interactions
+  map.on('mouseenter', 'prop-markers', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'prop-markers', () => {
+    map.getCanvas().style.cursor = '';
+  });
+
+  map.on('click', 'prop-markers', (e) => {
+    const f = e.features[0];
+    const p = f.properties;
+    const propCoords = f.geometry.coordinates;
+
+    // Calculate distances
+    const distances = odorSources.map(src => {
+      const d = distanceMiles(propCoords, src.coords);
+      return { name: src.name.replace('NTMWD Regional Disposal Facility', 'Landfill (NTMWD)'), dist: d };
+    });
+
+    const statusClass = p.status === 'eliminated' ? 'eliminated' :
+                        p.status === 'review' ? 'review' : 'active';
+    const statusBadge = p.status === 'eliminated' ? 'status-eliminated' :
+                        p.status === 'review' ? 'status-review' : 'status-active';
+
+    const distHtml = distances.map(d => {
+      const cls = d.dist < 1 ? 'dist-close' : d.dist < 2 ? 'dist-mod' : 'dist-far';
+      return `<div class="dist-row"><span>${d.name}</span><span class="dist-val ${cls}">${d.dist.toFixed(2)} mi</span></div>`;
+    }).join('');
+
+    if (popup) popup.remove();
+    popup = new maplibregl.Popup({ offset: 18, closeButton: true, maxWidth: '340px' })
+      .setLngLat(propCoords)
+      .setHTML(`
+        <div class="popup-card ${statusClass}">
+          <div class="popup-addr">${p.addr}</div>
+          ${p.subdiv ? `<div class="popup-subdiv">${p.subdiv}</div>` : ''}
+          <div class="popup-row">
+            <span class="popup-val" style="font-size:16px;color:#60a5fa">${p.price}</span>
+          </div>
+          <div class="popup-row">
+            <span class="popup-val">${p.beds}bd / ${p.baths}ba</span>
+            <span class="popup-label">•</span>
+            <span class="popup-val">${p.sqft} sqft</span>
+          </div>
+          <div class="popup-row">
+            <span class="popup-label">Lot:</span><span class="popup-val">${p.lot}</span>
+          </div>
+          <div class="popup-row">
+            <span class="popup-label">Built:</span><span class="popup-val">${p.year}</span>
+          </div>
+          <hr class="popup-divider">
+          <div class="popup-notes">${p.notes}</div>
+          ${p.reason ? `<div class="popup-notes" style="color:#f87171;margin-top:4px">⚠ ${p.reason}</div>` : ''}
+          <span class="popup-status ${statusBadge}">${p.statusLabel || p.status}</span>
+          <hr class="popup-divider">
+          <div class="popup-distances">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;font-weight:600">Distance to Odor Sources</div>
+            ${distHtml}
+          </div>
+        </div>
+      `)
+      .addTo(map);
+  });
+}
+
+// ─── CONTROLS ────────────────────────────────────────────────────
+document.getElementById('toggleOdor').addEventListener('change', function() {
+  const vis = this.checked ? 'visible' : 'none';
+  odorSources.forEach(src => {
+    ['odor-fill-', 'odor-inner-fill-', 'odor-line-'].forEach(prefix => {
+      if (map.getLayer(prefix + src.id)) map.setLayoutProperty(prefix + src.id, 'visibility', vis);
+    });
+  });
+  // Also toggle facility labels
+  ['facility-icons', 'facility-text'].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  });
+});
+
+document.getElementById('toggleWind').addEventListener('change', function() {
+  const vis = this.checked ? 'visible' : 'none';
+  odorSources.forEach(src => {
+    ['plume-fill-', 'plume-line-', 'arrows-'].forEach(prefix => {
+      if (map.getLayer(prefix + src.id)) map.setLayoutProperty(prefix + src.id, 'visibility', vis);
+    });
+  });
+});
+
+document.getElementById('toggleProps').addEventListener('change', function() {
+  const vis = this.checked ? 'visible' : 'none';
+  ['prop-glow', 'prop-markers', 'prop-x-label', 'prop-labels'].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  });
+});
+
+document.getElementById('toggleSat').addEventListener('change', function() {
+  isSatellite = this.checked;
+  if (!satAdded) return;
+
+  if (isSatellite) {
+    // Get the first overlay layer id to insert satellite beneath everything
+    const firstOverlay = 'odor-fill-' + odorSources[0].id;
+    // Find the first non-base layer to insert before
+    const style = map.getStyle();
+    const baseLayerIds = style.layers.filter(l => !l.id.startsWith('odor-') && !l.id.startsWith('plume-') && !l.id.startsWith('arrows-') && !l.id.startsWith('prop-') && !l.id.startsWith('facility-'));
+    const lastBaseId = baseLayerIds.length > 0 ? baseLayerIds[baseLayerIds.length - 1].id : undefined;
+
+    if (!map.getLayer('sat-base')) {
+      map.addLayer({ id: 'sat-base', type: 'raster', source: 'sat-tiles' }, firstOverlay);
+      map.addLayer({ id: 'sat-label', type: 'raster', source: 'sat-labels', paint: { 'raster-opacity': 0.7 } }, firstOverlay);
+    }
+    // Hide the base map vector layers to show satellite underneath
+    style.layers.forEach(l => {
+      if (!l.id.startsWith('sat-') && !l.id.startsWith('odor-') && !l.id.startsWith('plume-') &&
+          !l.id.startsWith('arrows-') && !l.id.startsWith('prop-') && !l.id.startsWith('facility-')) {
+        try { map.setLayoutProperty(l.id, 'visibility', 'none'); } catch(e) {}
+      }
+    });
+  } else {
+    // Remove satellite layers and show base map again
+    if (map.getLayer('sat-label')) map.removeLayer('sat-label');
+    if (map.getLayer('sat-base')) map.removeLayer('sat-base');
+    // Restore base map layers
+    const style = map.getStyle();
+    style.layers.forEach(l => {
+      if (!l.id.startsWith('sat-') && !l.id.startsWith('odor-') && !l.id.startsWith('plume-') &&
+          !l.id.startsWith('arrows-') && !l.id.startsWith('prop-') && !l.id.startsWith('facility-')) {
+        try { map.setLayoutProperty(l.id, 'visibility', 'visible'); } catch(e) {}
+      }
+    });
+  }
+});
+
+// Season toggle
+document.querySelectorAll('.season-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.season-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentSeason = this.dataset.season;
+    addWindPlumes(currentSeason);
+    // Respect wind toggle
+    if (!document.getElementById('toggleWind').checked) {
+      odorSources.forEach(src => {
+        ['plume-fill-', 'plume-line-', 'arrows-'].forEach(prefix => {
+          if (map.getLayer(prefix + src.id)) map.setLayoutProperty(prefix + src.id, 'visibility', 'none');
+        });
+      });
+    }
+  });
+});
+</script>
+</body>
+</html>
